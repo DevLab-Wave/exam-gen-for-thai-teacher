@@ -29,6 +29,7 @@ export interface Part {
 	id: string;
 	title: string;
 	instructions?: string;
+	columns?: 1 | 2; // จำนวนคอลัมน์ของตอนนี้ (ไม่ระบุ = ใช้ค่าตั้งต้นของเอกสาร)
 }
 
 export type ChoiceStyle = 'thai' | 'latin' | 'number'; // ก. ข. ค. ง. | A. B. C. D. | 1) 2) 3) 4)

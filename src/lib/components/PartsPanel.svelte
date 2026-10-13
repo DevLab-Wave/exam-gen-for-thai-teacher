@@ -31,6 +31,11 @@
 				<div class="rounded-lg border border-slate-200 p-3 dark:border-slate-700">
 					<div class="mb-2 flex items-center gap-2">
 						<input class="input" bind:value={p.title} placeholder="ชื่อตอน เช่น ตอนที่ 1 ปรนัย" />
+						<select class="input !w-auto" bind:value={p.columns} title="จำนวนคอลัมน์ของตอนนี้">
+							<option value={undefined}>คอลัมน์ตามเอกสาร</option>
+							<option value={1}>1 คอลัมน์</option>
+							<option value={2}>2 คอลัมน์</option>
+						</select>
 						<span class="whitespace-nowrap text-xs text-slate-500">{countIn(p.id)} ข้อ</span>
 						<button class="btn-ghost !p-1.5" disabled={i === 0} onclick={() => move(i, -1)} aria-label="เลื่อนขึ้น"><ArrowUp size={14} /></button>
 						<button class="btn-ghost !p-1.5" disabled={i === app.parts.length - 1} onclick={() => move(i, 1)} aria-label="เลื่อนลง"><ArrowDown size={14} /></button>

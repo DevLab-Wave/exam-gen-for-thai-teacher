@@ -41,7 +41,8 @@ const USABLE_H = A4.height - MARGIN * 2; // 14570
 const lineDxaFor = (s: DocSettings) => Math.round(s.fontSize * 20 * 1.15 * s.lineSpacing);
 // อักษรไทยจริงๆ กว้าง ≈ 0.6 เท่าของขนาด font (TH Sarabun) — ปัดความจุบรรทัดเป็น em
 const GLYPH_W = 0.6;
-const emPerLineFor = (s: DocSettings) => Math.max(6, colWidth(s.columns) / (s.fontSize * 20 * GLYPH_W));
+const emPerLineFor = (s: DocSettings, columns: 1 | 2) =>
+	Math.max(6, colWidth(columns) / (s.fontSize * 20 * GLYPH_W));
 const linesOf = (text: string, emPerLine: number) => Math.max(1, Math.ceil(estimateEm(text) / emPerLine));
 const imageHeightDxa = (img: QuestionImage, maxWpx: number) => {
 	const scale = Math.min(1, maxWpx / Math.max(1, img.width));
@@ -70,11 +71,12 @@ function estimateQuestionHeight(
 	no: number,
 	s: DocSettings,
 	lineDxa: number,
-	emPerLine: number
+	emPerLine: number,
+	columns: 1 | 2
 ): number {
-	const colPx = colWidth(s.columns) / DXA_PER_PX;
+	const colPx = colWidth(columns) / DXA_PER_PX;
 	let h = linesOf(`${no}. ${plainText(q.text)}`, emPerLine) * lineDxa + 80;
-	if (q.image) h += imageHeightDxa(q.image, Math.min(colPx, s.columns === 2 ? colPx - 30 : 380)) + lineDxa;
+	if (q.image) h += imageHeightDxa(q.image, Math.min(colPx, columns === 2 ? colPx - 30 : 380)) + lineDxa;
 	// รูปแทรกในข้อความ
 	for (const seg of parseRichText(q.text)) {
 		if (seg.type !== 'img') continue;
@@ -85,7 +87,7 @@ function estimateQuestionHeight(
 		h += Math.max(1, q.answerLines ?? 3) * lineDxa;
 		return Math.round(h);
 	}
-	const inline = s.choiceLayout === 'inline' && s.columns === 1 && q.choices.length <= 4;
+	const inline = s.choiceLayout === 'inline' && columns === 1 && q.choices.length <= 4;
 	if (inline) {
 		h += lineDxa;
 	} else if (
@@ -130,34 +132,48 @@ export function buildFlow(questions: Question[], parts: Part[]): FlowItem[] {
 	return items;
 }
 
-function groupIntoPages(items: FlowItem[], s: DocSettings): FlowItem[][] {
+const columnsOfPart = (p: Part | undefined, s: DocSettings): 1 | 2 => p?.columns ?? s.columns;
+
+export interface PageGroup {
+	columns: 1 | 2;
+	items: FlowItem[];
+}
+
+function groupIntoPages(items: FlowItem[], s: DocSettings, parts: Part[]): PageGroup[] {
 	const lineDxa = lineDxaFor(s);
-	const emPerLine = emPerLineFor(s);
-	// เผื่อบรรทัดกันล้นเกินหน้า (ถ้าเกินจะหลุดไปหน้าถัดไปใน section เดียวกัน)
-	const fullBudget = (s.columns === 2 ? USABLE_H * 2 : USABLE_H) - lineDxa;
-	// หน้าที่ 1 ต้องเหลือพื้นที่ให้ header ด้วย
-	const firstBudget = Math.max(0, fullBudget - estimateHeaderHeight(s, lineDxa, emPerLine));
+	const partCols = new Map(parts.map((p) => [p.id, columnsOfPart(p, s)]));
+	const colsOf = (it: FlowItem): 1 | 2 =>
+		it.kind === 'part' ? columnsOfPart(it.part, s) : it.q.partId ? partCols.get(it.q.partId) ?? s.columns : s.columns;
 
-	const heightOf = (it: FlowItem) =>
-		it.kind === 'part'
-			? estimatePartHeight(it.part, s, lineDxa, emPerLine)
-			: estimateQuestionHeight(it.q, it.no, s, lineDxa, emPerLine);
+	// หน้าที่ 1 ต้องเหลือพื้นที่ให้ header (header เป็น 1 คอลัมน์เสมอ)
+	const headerH = estimateHeaderHeight(s, lineDxa, emPerLineFor(s, 1));
+	const budgetFor = (cols: 1 | 2, first: boolean) => {
+		const full = (cols === 2 ? USABLE_H * 2 : USABLE_H) - lineDxa; // เผื่อบรรทัดกันล้น
+		return first ? Math.max(0, full - headerH) : full;
+	};
 
-	const groups: FlowItem[][] = [];
+	const groups: PageGroup[] = [];
 	let cur: FlowItem[] = [];
+	let curCols: 1 | 2 = s.columns;
 	let used = 0;
 	for (const it of items) {
-		const h = heightOf(it);
-		const budget = cur.length === 0 && groups.length === 0 ? firstBudget : fullBudget;
-		if (cur.length > 0 && used + h > budget) {
-			groups.push(cur);
+		const cols = colsOf(it);
+		const emPerLine = emPerLineFor(s, cols);
+		const h =
+			it.kind === 'part'
+				? estimatePartHeight(it.part, s, lineDxa, emPerLine)
+				: estimateQuestionHeight(it.q, it.no, s, lineDxa, emPerLine, cols);
+		// ขึ้นหน้าใหม่เมื่อคอลัมน์เปลี่ยน หรือเนื้อหาเกินพื้นที่ของกลุ่มปัจจุบัน
+		if (cur.length > 0 && (cols !== curCols || used + h > budgetFor(curCols, groups.length === 0))) {
+			groups.push({ columns: curCols, items: cur });
 			cur = [];
 			used = 0;
 		}
+		if (cur.length === 0) curCols = cols;
 		cur.push(it);
 		used += h;
 	}
-	if (cur.length) groups.push(cur);
+	if (cur.length) groups.push({ columns: curCols, items: cur });
 	return groups;
 }
 
@@ -350,6 +366,7 @@ function buildQuestion(
 	no: number,
 	s: DocSettings,
 	rf: RunFactory,
+	columns: 1 | 2,
 	breakBefore = false
 ): Paragraph[] {
 	const spacing = { line: Math.round(s.lineSpacing * 240) };
@@ -368,13 +385,13 @@ function buildQuestion(
 	);
 
 	if (q.image) {
-		const colPx = colWidth(s.columns) / DXA_PER_PX;
+		const colPx = colWidth(columns) / DXA_PER_PX;
 		out.push(
 			new Paragraph({
 				alignment: AlignmentType.CENTER,
 				keepNext: true,
 				spacing,
-				children: [rf.image(q.image, Math.min(colPx, s.columns === 2 ? colPx - 30 : 380))]
+				children: [rf.image(q.image, Math.min(colPx, columns === 2 ? colPx - 30 : 380))]
 			})
 		);
 	}
@@ -395,7 +412,7 @@ function buildQuestion(
 		return out;
 	}
 
-	const inline = s.choiceLayout === 'inline' && s.columns === 1 && q.choices.length <= 4;
+	const inline = s.choiceLayout === 'inline' && columns === 1 && q.choices.length <= 4;
 	const choiceRuns = (i: number) => [...rf.rich(q.choices[i] ?? '', {}, imgs)];
 
 	if (inline) {
@@ -419,7 +436,7 @@ function buildQuestion(
 	) {
 		// 2 ตัวต่อบรรทัด (เฉพาะตัวเลือกที่สั้น): คอลัมน์ที่ 2 เริ่มที่กึ่งกลางด้วย tab stop
 		const left = 420;
-		const half = Math.floor((colWidth(s.columns) - left) / 2);
+		const half = Math.floor((colWidth(columns) - left) / 2);
 		for (let i = 0; i < q.choices.length; i += 2) {
 			const children: (TextRun | ImageRun)[] = [
 				rf.text(labelOf(s.choiceStyle, i)),
@@ -538,16 +555,19 @@ export async function buildExamDocx(questions: Question[], s: DocSettings, parts
 		{ properties: { page }, footers: { default: footer() }, children: buildHeader(s, rf) },
 		// เนื้อข้อสอบ: แบ่งเป็นเพจจริง (sections) กลุ่มละพอดีหนึ่งหน้า
 		// กลุ่มแรก CONTINUOUS ต่อจาก header ขึ้นหน้าเดียวกัน กลุ่มถัดไปเริ่มหน้าใหม่
-		...groupIntoPages(flow, s).map((group, gi) => ({
+		// แต่ละกลุ่มมีจำนวนคอลัมน์ของตัวเอง (ตามตอนที่กำหนดไว้)
+		...groupIntoPages(flow, s, parts).map((group, gi) => ({
 			properties: {
 				type: gi === 0 ? SectionType.CONTINUOUS : SectionType.NEXT_PAGE,
 				page,
-				column: s.columns === 2 ? { count: 2, space: COL_GAP, separate: true } : undefined
+				column: group.columns === 2 ? { count: 2, space: COL_GAP, separate: true } : undefined
 			},
 			footers: { default: footer() },
-			children: group.flatMap((item, i) => {
+			children: group.items.flatMap((item, i) => {
 				const brk = gi > 0 && i === 0;
-				return item.kind === 'part' ? buildPart(item.part, s, rf, brk) : buildQuestion(item.q, item.no, s, rf, brk);
+				return item.kind === 'part'
+					? buildPart(item.part, s, rf, brk)
+					: buildQuestion(item.q, item.no, s, rf, group.columns, brk);
 			})
 		}))
 	];

@@ -19,7 +19,7 @@
 			<label class="text-sm">คะแนนเต็ม<input type="number" min="0" class="input mt-1" bind:value={s.totalScore} /></label>
 		</div>
 
-		<label class="text-sm">จำนวนคอลัมน์
+		<label class="text-sm">จำนวนคอลัมน์ (ค่าเริ่มต้น)
 			<select class="input mt-1" bind:value={s.columns}>
 				<option value={1}>1 คอลัมน์</option>
 				<option value={2}>2 คอลัมน์ (ประหยัดกระดาษ)</option>
@@ -49,7 +49,7 @@
 		<label class="text-sm">การจัดตัวเลือก
 			<select class="input mt-1" bind:value={s.choiceLayout}>
 				<option value="vertical">เรียงแนวตั้ง</option>
-				<option value="inline" disabled={s.columns === 2}>เรียงบรรทัดเดียว (1 คอลัมน์)</option>
+				<option value="inline">เรียงบรรทัดเดียว (เฉพาะตอนที่เป็น 1 คอลัมน์)</option>
 				<option value="double">เรียง 2 ตัวต่อบรรทัด (เฉพาะตัวเลือกสั้น)</option>
 			</select>
 		</label>
